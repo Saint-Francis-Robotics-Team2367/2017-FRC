@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <sstream>
 
 #include <Joystick.h>
 #include <SampleRobot.h>
@@ -14,21 +15,9 @@
 #include <AHRS.h>
 
 #define tickRateForward 100
-#define tickRateTurn 35
+#define tickRateTurn 10
 #define wheelDiameter 8
 
-/**
- * This is a demo program showing the use of the RobotDrive class.
- * The SampleRobot class is the base of a robot application that will
- * automatically call your Autonomous and OperatorControl methods at the right
- * time as controlled by the switches on the driver station or the field
- * controls.
- *
- * WARNING: While it may look like a good choice to use for your code if you're
- * inexperienced, don't. Unless you know what you are doing, complex code will
- * be much more difficult under this system. Use IterativeRobot or Command-Based
- * instead if you're new.
- */
 class Robot: public frc::SampleRobot {
 
 	enum AutoState {
@@ -48,6 +37,9 @@ class Robot: public frc::SampleRobot {
 	CANTalon *backMotorR;
 	frc::RobotDrive *drive;
 
+	std::vector<double> pidDrive;
+	std::vector<double> pidTurn;
+
 	Joystick *joystickMain;
 
 	frc::DigitalInput *gearLimitSwitch;
@@ -55,8 +47,11 @@ class Robot: public frc::SampleRobot {
 	AHRS *navX;
 
 	bool autoInit, teleopInit, pidInit;
-	int ticksBackL, ticksBackR;
+	int ticksBackL, ticksBackR, totalTicks;
 	float initialAngle;
+	double initialTime, lastTime;
+
+	int totalCycles;
 
 	frc::SendableChooser<std::string> chooser;
 	const std::string autoNothing = "Nothing";
@@ -83,8 +78,13 @@ public:
 		frontMotorR = new CANTalon(3);
 		backMotorR = new CANTalon(4);
 
+		pidDrive = {0.24, 0, 0.18};
+		pidTurn = {0.7, 0, 0};
+
 		ticksBackL = 0;
 		ticksBackR = 0;
+		totalTicks = 0;
+		totalCycles = 0;
 
 		drive = new RobotDrive(frontMotorL, backMotorL, frontMotorR, backMotorR);
 		joystickMain = new Joystick(0);
@@ -106,14 +106,13 @@ public:
 		chooser.AddObject(autoHighGoal, autoHighGoal);
 		SmartDashboard::PutData("Auto Modes", &chooser);
 
-		SmartDashboard::PutNumber("Inches to Move", 96);
 	}
 
 	float convertDistanceToTicks (float inches) {
 		return inches / wheelDiameter / 3.1415 * 1024 * 4;
 	}
 
-	bool turnToAngle (float degreesFromInit, float ticksLeft, float ticksRight, float p, float i, float d) {
+	bool turnToAngle (double degreesFromInit, double ticksLeft, double ticksRight, double p, double i, double d) {
 		DriverStation::ReportError("Turning");
 		// good turning PID's are 0.7, 0, 0
 		if (pidInit == false) {
@@ -122,20 +121,21 @@ public:
 		}
 		SmartDashboard::PutNumber("Angle to Get", initialAngle + degreesFromInit);
 
-		if (abs(navX->GetAngle() - (initialAngle + degreesFromInit)) < 5) {
+		backMotorL->Set(ticksLeft);
+		backMotorR->Set(ticksRight);
+
+		if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 5) {
 			DriverStation::ReportError("Done and returning true");
 			ticksBackL = -backMotorL->GetEncPosition();
 			ticksBackR = -backMotorR->GetEncPosition();
 			backMotorL->Set(ticksBackL);
 			backMotorR->Set(ticksBackR);
-			SmartDashboard::PutNumber("Current Setpoint Left", ticksBackL);
-			SmartDashboard::PutNumber("Current Setpoint Right", ticksBackR);
+			//			SmartDashboard::PutNumber("Current Setpoint Left", ticksBackL);
+			//			SmartDashboard::PutNumber("Current Setpoint Right", ticksBackR);
 
 			return true;
 		} else {
 			//			resetMotors();
-			backMotorL->Set(ticksLeft);
-			backMotorR->Set(ticksRight);
 
 			if (degreesFromInit < 0) {
 				ticksBackL -= tickRateTurn;
@@ -148,7 +148,7 @@ public:
 			return false;
 		}
 	}
-	bool driveDistance (float ticksLeft, float ticksRight, float p, float i, float d) {
+	bool driveDistance (int ticksLeft, int ticksRight, double p, double i, double d) {
 		if (pidInit == false) {
 			pidInit = true;
 			PIDInit(p, i, d);
@@ -156,40 +156,53 @@ public:
 
 		//		frontMotorL->Set(x);
 		//		frontMotorR->Set(-x);
-		backMotorL->Set((SmartDashboard::GetNumber("Ticks to Move", 0) > 0 ? ticksLeft : -ticksLeft));
-		backMotorR->Set((SmartDashboard::GetNumber("Ticks to Move", 0) > 0 ? -ticksRight : ticksRight));
-		if (abs(abs(backMotorL->GetEncPosition()) - ticksLeft) < 300 &&
-				abs(abs(backMotorR->GetEncPosition()) - ticksRight) < 300) {
-			backMotorL->Set(backMotorL->GetEncPosition());
-			backMotorR->Set(backMotorR->GetEncPosition());
+
+		backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
+		backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
+
+		// Checks if current tick position is within +-5% of expected total
+		if (abs(backMotorL->GetEncPosition()) - abs(ticksLeft) < abs(totalTicks * .05) &&
+				abs(backMotorR->GetEncPosition()) - abs(ticksRight) < abs(totalTicks * .05) &&
+				abs(ticksLeft) >= abs(totalTicks) && abs(ticksRight) >= abs(totalTicks)) {
+			DriverStation::ReportError("PID drive returning true");
+			//			backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
+			//			backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
 			return true;
 		} else {
-			double ticksToMove = SmartDashboard::GetNumber("Ticks to Move", 0);
-			if (abs(ticksBackL) < abs(ticksToMove)) {
+			if (abs(ticksBackL) < abs(totalTicks)) {
 				ticksBackL += tickRateForward;
 			}
-			if (abs(ticksBackR) < abs(ticksToMove)) {
+			if (abs(ticksBackR) < abs(totalTicks)) {
 				ticksBackR += tickRateForward;
 			}
 			return false;
 		}
 	}
 
-	void PIDInit(float p, float i, float d) {
+	void PIDInit(double p, double i, double d) {
 		DriverStation::ReportError("PID Init");
 
 		navX->Reset();
-
-		ticksBackL = tickRateForward + 200;
-		ticksBackR = tickRateForward + 200;
-
 		initialAngle = 0;
-		SmartDashboard::PutNumber("Initial Angle", initialAngle);
+
+		ticksBackL = 0;
+		ticksBackR = 0;
+		DriverStation::ReportError("Left Ticks " + std::to_string(ticksBackL));
 
 		frontMotorL->SetEncPosition(0);
 		frontMotorR->SetEncPosition(0);
 		backMotorL->SetEncPosition(0);
 		backMotorR->SetEncPosition(0);
+
+		frontMotorL->SetControlMode(CANSpeedController::kPosition);
+		frontMotorR->SetControlMode(CANSpeedController::kPosition);
+		backMotorL->SetControlMode(CANSpeedController::kPosition);
+		backMotorR->SetControlMode(CANSpeedController::kPosition);
+
+		frontMotorL->Set(0);
+		frontMotorR->Set(0);
+		backMotorL->Set(0);
+		backMotorR->Set(0);
 
 		frontMotorL->SetPID(p, i, d);
 		frontMotorR->SetPID(p, i, d);
@@ -201,15 +214,17 @@ public:
 		backMotorL->SetSensorDirection(true);
 		backMotorR->SetSensorDirection(true);
 
-		frontMotorL->SetControlMode(CANSpeedController::kPosition);
-		frontMotorR->SetControlMode(CANSpeedController::kPosition);
-		backMotorL->SetControlMode(CANSpeedController::kPosition);
-		backMotorR->SetControlMode(CANSpeedController::kPosition);
+		//		SmartDashboard::PutNumber("Total Ticks", 5000);
+		//		SmartDashboard::PutNumber("Current P", 0.1);
+		//		SmartDashboard::PutNumber("Current I", 0);
+		//		SmartDashboard::PutNumber("Current D", 0.01);
+		//		pidDrive[0] = SmartDashboard::GetNumber("Current P", 0);
+		//		pidDrive[1] = SmartDashboard::GetNumber("Current I", 0);
+		//		pidDrive[2] = SmartDashboard::GetNumber("Current D", 0);
 
-		frontMotorL->Set(0);
-		frontMotorR->Set(0);
-		backMotorL->Set(0);
-		backMotorR->Set(0);
+		DriverStation::ReportError(std::to_string(ticksBackR));
+
+		SmartDashboard::PutNumber("Starting ticks", ticksBackR);
 	}
 
 	void autonomousInit() {
@@ -224,10 +239,10 @@ public:
 		backMotorL->SetEncPosition(0);
 		backMotorR->SetEncPosition(0);
 
-		ticksBackL = tickRateForward;
-		ticksBackR = tickRateForward;
+		ticksBackL = 0;
+		ticksBackR = 0;
 
-		navX->Reset();
+		//		navX->Reset();
 
 		//		initialY = imu->GetAngleY();
 		//		initialZ = imu->GetAngleZ() - 12;
@@ -251,7 +266,7 @@ public:
 				//				SmartDashboard::PutNumber("AngleX", imu->GetAngleX());
 				//				SmartDashboard::PutNumber("AngleY", imu->GetAngleY());
 				//				SmartDashboard::PutNumber("AngleZ", imu->GetAngleZ());
-				SmartDashboard::PutNumber("NavX Angle", navX->GetAngle());
+				//				SmartDashboard::PutNumber("NavX Angle", navX->GetAngle());
 				SmartDashboard::PutNumber("Current Setpoint Left", ticksBackL);
 				SmartDashboard::PutNumber("Current Setpoint Right", ticksBackR);
 				SmartDashboard::PutNumber("Current P", backMotorL->GetP());
@@ -262,17 +277,21 @@ public:
 				SmartDashboard::PutNumber("Left Back", backMotorL->GetEncPosition());
 				SmartDashboard::PutNumber("Right Back", backMotorR->GetEncPosition());
 
+				std::string ticksAndTime = std::to_string(backMotorL->GetEncPosition()) + " "+ std::to_string(Timer::GetFPGATimestamp());
+				DriverStation::ReportError(ticksAndTime);
+
 				if (autoSelected == autoNothing) {
 					if (autoState == STATE1) {
 						DriverStation::ReportError("State 1");
 
+						totalTicks = convertDistanceToTicks(96);
 						SmartDashboard::PutNumber("Ticks to Move", convertDistanceToTicks(96));
 						if (driveDistance(
 								ticksBackL,
 								ticksBackR,
-								SmartDashboard::GetNumber("Left P", 0),
-								SmartDashboard::GetNumber("Left I", 0),
-								SmartDashboard::GetNumber("Left D", 0)) == true) {
+								pidDrive[0],
+								pidDrive[1],
+								pidDrive[2]) == true) {
 							// finished driving distance
 							autoState = STATE2;
 							pidInit = false;
@@ -291,7 +310,9 @@ public:
 						if (turnToAngle(SmartDashboard::GetNumber("Degrees to Turn", 0),
 								ticksBackL,
 								ticksBackR,
-								0.7, 0, 0) == true) {
+								pidTurn[0],
+								pidTurn[1],
+								pidTurn[2]) == true) {
 
 							autoState = STATE3;
 							pidInit = false;
@@ -305,13 +326,14 @@ public:
 					} else if (autoState == STATE3) {
 						DriverStation::ReportError("State 3");
 
+						totalTicks = convertDistanceToTicks(56);
 						SmartDashboard::PutNumber("Ticks to Move", convertDistanceToTicks(56));
 						if (driveDistance(
 								ticksBackL,
 								ticksBackR,
-								SmartDashboard::GetNumber("Left P", 0),
-								SmartDashboard::GetNumber("Left I", 0),
-								SmartDashboard::GetNumber("Left D", 0)) == true) {
+								pidDrive[0],
+								pidDrive[1],
+								pidDrive[2]) == true) {
 							// finished driving distance
 							autoState = STATE4;
 							pidInit = false;
@@ -327,7 +349,23 @@ public:
 						}
 					}
 				} else if (autoSelected == autoForward) {
-
+					//					if (pidInit == false) {
+					//						pidInit = true;
+					//						PIDInit(SmartDashboard::GetNumber("Left P", 0),
+					//								SmartDashboard::GetNumber("Left I", 0),
+					//								SmartDashboard::GetNumber("Left D", 0));
+					//					}
+					//
+					//					double timeDiff = Timer::GetFPGATimestamp() - lastTime;
+					//					double ticksIncrement = 3 * 4096 * timeDiff;
+					//
+					//					(ticksBackL > 0 ? ticksBackL += ticksIncrement : ticksBackL -= ticksIncrement);
+					//					(ticksBackR > 0 ? ticksBackR += ticksIncrement : ticksBackR -= ticksIncrement);
+					//
+					//					backMotorL->Set((ticksToMove > 0 ? ticksBackL : -ticksBackL));
+					//					backMotorR->Set((ticksToMove > 0 ? -ticksBackR : ticksBackR));
+					//
+					//					lastTime = Timer::GetFPGATimestamp();
 				} else if (autoSelected == autoLowGoal) {
 				} else if (autoSelected == autoGear) {
 				} else if (autoSelected == autoHighGoal) {
@@ -354,6 +392,12 @@ public:
 		frontMotorR->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorL->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorR->SetControlMode(CANSpeedController::kPercentVbus);
+
+		ticksBackL = 0;
+		ticksBackR = 0;
+
+		initialTime = Timer::GetFPGATimestamp();
+
 	}
 	void OperatorControl() override {
 		//		drive->SetSafetyEnabled(true);
@@ -367,13 +411,14 @@ public:
 				//				SmartDashboard::PutNumber("AngleY", imu->GetAngleY());
 				//				SmartDashboard::PutNumber("AngleZ", imu->GetAngleZ());
 				SmartDashboard::PutNumber("NavX Angle", navX->GetAngle());
-				SmartDashboard::PutNumber("Current P", frontMotorL->GetP());
-				SmartDashboard::PutNumber("Current I",frontMotorL->GetI());
-				SmartDashboard::PutNumber("Current D", frontMotorL->GetD());
-				SmartDashboard::PutNumber("Left Front", frontMotorL->GetEncPosition());
-				SmartDashboard::PutNumber("Right Front", frontMotorR->GetEncPosition());
-				SmartDashboard::PutNumber("Left Back", backMotorL->GetEncPosition());
-				SmartDashboard::PutNumber("Right Back", backMotorR->GetEncPosition());
+				SmartDashboard::PutNumber("Ticks 1", backMotorL->GetEncPosition());
+				//				SmartDashboard::PutNumber("SetpointLeft", ticksBackL);
+				SmartDashboard::PutNumber("Setpoint 1", ticksBackL);
+				SmartDashboard::PutNumber("Error 1", abs(ticksBackL) - abs(backMotorL->GetEncPosition()));
+
+				// just to avoid motor safety helpers if not called later, although it should be
+				//				drive->ArcadeDrive(0.0, 0);
+
 				if (gearLimitSwitch->Get() == 0) {
 					// Switch Closed - possessing gear
 				} else if (gearLimitSwitch->Get() == 1) {
@@ -381,7 +426,111 @@ public:
 				} else {
 					DriverStation::ReportError("Error: Limit switch returning something not 0 or 1");
 				}
-				drive->ArcadeDrive(-joystickMain->GetRawAxis(1), -joystickMain->GetRawAxis(4));
+
+				/*
+				if (joystickMain->GetRawButton(2)) {
+					if (pidInit == false) {
+						DriverStation::ReportError("ACTUALLY INITIALIZING");
+						pidInit = true;
+
+						PIDInit(pidTurn[0], pidTurn[1], pidTurn[2]);
+
+						// Doing this here too because it takes a while to actually finish
+						ticksBackL = 0;
+						ticksBackR = 0;
+						frontMotorL->SetEncPosition(0);
+						frontMotorR->SetEncPosition(0);
+						backMotorL->SetEncPosition(0);
+						backMotorR->SetEncPosition(0);
+						backMotorL->Set(0);
+						backMotorR->Set(0);
+
+						SmartDashboard::PutNumber("Setpoint 1", ticksBackL);
+						SmartDashboard::PutNumber("Error 1", abs(ticksBackL) - abs(backMotorL->GetEncPosition()));
+					}
+					//					DriverStation::ReportError("State 2");
+					if (turnToAngle(SmartDashboard::GetNumber("Degrees to Turn", 0),
+							ticksBackL,
+							ticksBackR,
+							pidTurn[0],
+							pidTurn[1],
+							pidTurn[2]) == true) {
+
+						autoState = STATE3;
+						DriverStation::ReportError("Finished turning");
+						//						ticksBackL = -backMotorL->GetEncPosition();
+						//						ticksBackR = -backMotorR->GetEncPosition();
+
+						frontMotorL->SetEncPosition(0);
+						frontMotorR->SetEncPosition(0);
+						backMotorL->SetEncPosition(0);
+						backMotorR->SetEncPosition(0);
+						backMotorL->Set(0);
+						backMotorR->Set(0);
+					} else {
+					}
+				} else {
+					pidInit = false;
+				}
+*/
+
+				if (joystickMain->GetRawButton(1)) {
+					if (autoState == STATE1) {
+						if (pidInit == false) {
+							pidInit = true;
+
+							totalCycles++;
+							pidDrive[0] = SmartDashboard::GetNumber("Current P", 0);
+							pidDrive[1] = SmartDashboard::GetNumber("Current I", 0);
+							pidDrive[2] = SmartDashboard::GetNumber("Current D", 0);
+							PIDInit(pidDrive[0], pidDrive[1], pidDrive[2]);
+
+							//	ticksString = "Ticks" + std::to_string(totalCycles) + " " + std::to_string(currentP) + "-"
+							//	+ std::to_string(currentI) + "-" + std::to_string(currentD);
+							//	timeString = "Time " + std::to_string(totalCycles);
+
+							if (SmartDashboard::GetNumber("Total Ticks", 0) < 500) {
+								if (totalTicks > 0)
+									totalTicks = -1 * convertDistanceToTicks(SmartDashboard::GetNumber("Total Ticks", 0));
+								else
+									totalTicks = convertDistanceToTicks(SmartDashboard::GetNumber("Total Ticks", 0));
+								SmartDashboard::PutNumber("Total Ticks", convertDistanceToTicks(SmartDashboard::GetNumber("Total Ticks", 0)));
+							} else {
+								if (totalTicks > 0)
+									totalTicks = -1 * SmartDashboard::GetNumber("Total Ticks", 0);
+								else
+									totalTicks = SmartDashboard::GetNumber("Total Ticks", 0);
+							}
+						}
+						if (driveDistance(
+								ticksBackL,
+								ticksBackR,
+								pidDrive[0],
+								pidDrive[1],
+								pidDrive[2]) == true) {
+
+							// Finished driving distance
+							DriverStation::ReportError("Finished forward");
+
+							//		frontMotorL->Set(x);
+							//		frontMotorR->Set(-x);
+							//						backMotorL->Set(backMotorL->GetEncPosition());
+							//						backMotorR->Set(backMotorR->GetEncPosition());
+						} else {
+							DriverStation::ReportError("Still driving");
+						}
+					} else if (autoState == STATE2) {
+
+					} else if (autoState == STATE3) {
+
+					} else if (autoState == STATE4) {
+
+					}
+				} else {
+					pidInit = false;
+				}
+				//				drive->ArcadeDrive(-joystickMain->GetRawAxis(1), -joystickMain->GetRawAxis(4));
+
 			} else {
 				teleopInit = false;
 			}
