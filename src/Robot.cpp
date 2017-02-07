@@ -13,6 +13,7 @@
 #include <DigitalInput.h>
 #include <DriverStation.h>
 #include <AHRS.h>
+#include <SFDrive.h>
 
 #define tickRateForward 100
 #define tickRateTurn 10
@@ -30,6 +31,8 @@ class Robot: public frc::SampleRobot {
 		STOP,
 	};
 	AutoState autoState;
+
+	SFDrive *sfDrive;
 
 	CANTalon *frontMotorL;
 	CANTalon *frontMotorR;
@@ -77,6 +80,8 @@ public:
 		backMotorL = new CANTalon(2);
 		frontMotorR = new CANTalon(3);
 		backMotorR = new CANTalon(4);
+
+		sfDrive = new SFDrive(frontMotorL, frontMotorR, backMotorL, backMotorR);
 
 		pidDrive = {0.24, 0, 0.18};
 		pidTurn = {0.7, 0, 0};
@@ -489,6 +494,8 @@ public:
 							//	+ std::to_string(currentI) + "-" + std::to_string(currentD);
 							//	timeString = "Time " + std::to_string(totalCycles);
 
+							// For setting drive distance from SmartDashboard
+							/*
 							if (SmartDashboard::GetNumber("Total Ticks", 0) < 500) {
 								if (totalTicks > 0)
 									totalTicks = -1 * convertDistanceToTicks(SmartDashboard::GetNumber("Total Ticks", 0));
@@ -501,6 +508,7 @@ public:
 								else
 									totalTicks = SmartDashboard::GetNumber("Total Ticks", 0);
 							}
+							*/
 						}
 						if (driveDistance(
 								ticksBackL,
