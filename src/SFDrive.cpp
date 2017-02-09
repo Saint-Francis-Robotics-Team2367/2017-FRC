@@ -32,26 +32,127 @@ SFDrive::SFDrive(CANTalon *frontLeft, CANTalon *frontRight, CANTalon *backLeft, 
 	frontMotorR = frontRight;
 	backMotorR = backRight;
 
+	frontMotorL->SetSensorDirection(true);
+	frontMotorR->SetSensorDirection(true);
+	backMotorL->SetSensorDirection(true);
+	backMotorR->SetSensorDirection(true);
+
 	drive = new RobotDrive(frontMotorL, backMotorL, frontMotorR, backMotorR);
 
-	navX = new AHRS(SerialPort::kMXP);
+	// This gets actually initialized after SFDrive's constructor is called in whatever class the sfDrive
+	// object is created. I wanted to avoid needing a navX parameter in the constructor so SFDrive can be used
+	// without a navX, and this is the easiest away
+	navX = NULL;
 
+	arcadeInit = false;
 	pidInit = false;
+
 	ticksBackL = 0;
 	ticksBackR = 0;
 	totalTicks = 0;
 	initialAngle = 0;
 	totalCycles = 0;
 
-	pidDrive = {0.24, 0, 0.18};
-	pidTurn = {0.7, 0, 0};
+	pidDriveVals = {0.24, 0, 0.18};
+	pidTurnVals = {0.7, 0, 0};
 }
 
+bool SFDrive::driveDistance(double ticks) {
+	if (pidInit == false) {
+		pidInit = true;
+		if (ticks < 500) {
+			totalTicks = convertDistanceToTicks(ticks);
+		} else {
+			totalTicks = ticks;
+		}
+		SmartDashboard::PutNumber("Total Ticks", totalTicks);
+
+		totalCycles++;
+		//		pidDrive[0] = SmartDashboard::GetNumber("Current P", 0);
+		//		pidDrive[1] = SmartDashboard::GetNumber("Current I", 0);
+		//		pidDrive[2] = SmartDashboard::GetNumber("Current D", 0);
+		PIDInit(pidDriveVals);
+	}
+	if (pidDrive(ticksBackL, ticksBackR, pidDriveVals) == true) {
+		// Finished driving distance
+		DriverStation::ReportError("Finished driving");
+
+		// Rezeroes everything when done
+		frontMotorL->SetEncPosition(0);
+		frontMotorR->SetEncPosition(0);
+		backMotorL->SetEncPosition(0);
+		backMotorR->SetEncPosition(0);
+		frontMotorL->Set(0);
+		frontMotorR->Set(0);
+		backMotorL->Set(0);
+		backMotorR->Set(0);
+
+		return true;
+	} else {
+		DriverStation::ReportError("Still driving");
+
+		return false;
+	}
+}
+bool SFDrive::turnToAngle(double angle) {
+	if (pidInit == false) {
+		pidInit = true;
+
+		// Doing this here too because it takes a while to actually finish
+		ticksBackL = 0;
+		ticksBackR = 0;
+		frontMotorL->SetEncPosition(0);
+		frontMotorR->SetEncPosition(0);
+		backMotorL->SetEncPosition(0);
+		backMotorR->SetEncPosition(0);
+		frontMotorL->Set(0);
+		frontMotorR->Set(0);
+		backMotorL->Set(0);
+		backMotorR->Set(0);
+
+		PIDInit(pidTurnVals);
+	}
+	if (pidTurn(angle, ticksBackL, ticksBackR, pidTurnVals) == true) {
+
+		DriverStation::ReportError("Finished turning");
+
+		// Rezeroes everything when done
+		frontMotorL->SetEncPosition(0);
+		frontMotorR->SetEncPosition(0);
+		backMotorL->SetEncPosition(0);
+		backMotorR->SetEncPosition(0);
+		frontMotorL->Set(0);
+		frontMotorR->Set(0);
+		backMotorL->Set(0);
+		backMotorR->Set(0);
+
+		return true;
+	} else {
+		DriverStation::ReportError("Still turning");
+
+		return false;
+	}
+}
 void SFDrive::joystickDrive(double forwardValue, double rotationValue) {
+	if (arcadeInit == false) {
+		ArcadeInit();
+		arcadeInit = true;
+	}
 	drive->ArcadeDrive(forwardValue, rotationValue);
 }
 
-void SFDrive::PIDInit(double p, double i, double d) {
+void SFDrive::ArcadeInit() {
+	frontMotorL->SetEncPosition(0);
+	frontMotorR->SetEncPosition(0);
+	backMotorL->SetEncPosition(0);
+	backMotorR->SetEncPosition(0);
+
+	frontMotorL->SetControlMode(CANSpeedController::kPercentVbus);
+	frontMotorR->SetControlMode(CANSpeedController::kPercentVbus);
+	backMotorL->SetControlMode(CANSpeedController::kPercentVbus);
+	backMotorR->SetControlMode(CANSpeedController::kPercentVbus);
+}
+void SFDrive::PIDInit(std::vector<double> pidConstants) {
 	DriverStation::ReportError("PID Init");
 
 	navX->Reset();
@@ -76,10 +177,10 @@ void SFDrive::PIDInit(double p, double i, double d) {
 	backMotorL->Set(0);
 	backMotorR->Set(0);
 
-	frontMotorL->SetPID(p, i, d);
-	frontMotorR->SetPID(p, i, d);
-	backMotorL->SetPID(p, i, d);
-	backMotorR->SetPID(p, i, d);
+	frontMotorL->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
+	frontMotorR->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
+	backMotorL->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
+	backMotorR->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
 
 	frontMotorL->SetSensorDirection(true);
 	frontMotorR->SetSensorDirection(true);
@@ -94,20 +195,18 @@ void SFDrive::PIDInit(double p, double i, double d) {
 	//		pidDrive[1] = SmartDashboard::GetNumber("Current I", 0);
 	//		pidDrive[2] = SmartDashboard::GetNumber("Current D", 0);
 
-	DriverStation::ReportError(std::to_string(ticksBackR));
-
-	SmartDashboard::PutNumber("Starting ticks", ticksBackR);
 }
 
-bool SFDrive::turnToAngle (double degreesFromInit, double ticksLeft, double ticksRight, double p, double i, double d) {
+bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, std::vector<double> pidConstants) {
 	DriverStation::ReportError("Turning");
-	// good turning PID's are 0.7, 0, 0
 	if (pidInit == false) {
-		SFDrive::PIDInit(p, i, d);
+		SFDrive::PIDInit(pidConstants);
 		pidInit = true;
 	}
 	SmartDashboard::PutNumber("Angle to Get", initialAngle + degreesFromInit);
 
+	//		frontMotorL->Set(x);
+	//		frontMotorR->Set(-x);
 	backMotorL->Set(ticksLeft);
 	backMotorR->Set(ticksRight);
 
@@ -136,21 +235,16 @@ bool SFDrive::turnToAngle (double degreesFromInit, double ticksLeft, double tick
 	}
 }
 
-bool SFDrive::driveDistance (int ticksLeft, int ticksRight, double p, double i, double d) {
-	if (pidInit == false) {
-		pidInit = true;
-		PIDInit(p, i, d);
-	}
+bool SFDrive::pidDrive (int ticksLeft, int ticksRight, std::vector<double> pidConstants) {
 
 	//		frontMotorL->Set(x);
 	//		frontMotorR->Set(-x);
-
 	backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
 	backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
 
 	// Checks if current tick position is within +-5% of expected total
-	if (abs(backMotorL->GetEncPosition()) - abs(ticksLeft) < abs(totalTicks * .05) &&
-			abs(backMotorR->GetEncPosition()) - abs(ticksRight) < abs(totalTicks * .05) &&
+	if (abs(abs(backMotorL->GetEncPosition()) - abs(ticksLeft)) < abs(totalTicks * .02) &&
+			abs(abs(backMotorR->GetEncPosition()) - abs(ticksRight)) < abs(totalTicks * .02) &&
 			abs(ticksLeft) >= abs(totalTicks) && abs(ticksRight) >= abs(totalTicks)) {
 		DriverStation::ReportError("PID drive returning true");
 		//			backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
@@ -165,6 +259,40 @@ bool SFDrive::driveDistance (int ticksLeft, int ticksRight, double p, double i, 
 		}
 		return false;
 	}
+}
+
+double SFDrive::convertDistanceToTicks (double inches) {
+		return inches / wheelDiameter / 3.1415 * 1024 * 4;
+}
+void SFDrive::resetMotors() {
+	if (drive->GetGlobalError().GetCode() != 0) {
+		drive->GetGlobalError().GetOriginatingObject()->ClearError();
+
+		frontMotorL->ClearError();
+		frontMotorR->ClearError();
+		backMotorL->ClearError();
+		backMotorR->ClearError();
+	}
+
+	drive->GetGlobalError().Clear();
+	frontMotorL->EnableControl();
+	frontMotorR->EnableControl();
+	backMotorL->EnableControl();
+	backMotorR->EnableControl();
+}
+
+// Some getters and setters
+void SFDrive::setPIDInit(bool value) {
+	pidInit = value;
+}
+void SFDrive::setArcadeInit(bool value) {
+	arcadeInit = value;
+}
+int SFDrive::getSetpointLeft() {
+	return ticksBackL;
+}
+int SFDrive::getSetpointRight() {
+	return ticksBackR;
 }
 
 SFDrive::~SFDrive() {

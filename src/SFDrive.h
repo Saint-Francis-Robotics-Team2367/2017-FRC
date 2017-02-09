@@ -38,22 +38,32 @@ public:
 	AHRS *navX;
 	float initialAngle;
 
-	void PIDInit(double p, double i, double d);
-	bool driveDistance (int ticksLeft, int ticksRight, double p, double i, double d);
-	bool turnToAngle (double degreesFromInit, double ticksLeft, double ticksRight, double p, double i, double d);
+	double convertDistanceToTicks (double inches);
+	bool driveDistance(double ticks);
+	bool turnToAngle(double angle);
 	void joystickDrive(double forwardValue, double rotationValue);
 
-private:
+	void resetMotors();
 
+	void setPIDInit(bool value);
+	void setArcadeInit(bool value);
+	int getSetpointLeft();
+	int getSetpointRight();
+
+private:
 	frc::RobotDrive *drive;
 
-	std::vector<double> pidDrive;
-	std::vector<double> pidTurn;
+	std::vector<double> pidDriveVals;
+	std::vector<double> pidTurnVals;
 
-	bool pidInit;
+	bool arcadeInit, pidInit;
 	int ticksBackL, ticksBackR, totalTicks;
 	int totalCycles;
 
+	void ArcadeInit();
+	void PIDInit(std::vector<double> pidConstants);
+	bool pidDrive (int ticksLeft, int ticksRight, std::vector<double> pidConstants);
+	bool pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, std::vector<double> pidConstants);
 };
 
 #endif /* SRC_SFDRIVE_H_ */
