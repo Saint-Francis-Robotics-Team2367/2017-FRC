@@ -14,6 +14,7 @@
 #include <DriverStation.h>
 #include <AHRS.h>
 #include <SFDrive.h>
+#include <VisionHelper.h>
 
 #define tickRateForward 100
 #define tickRateTurn 10
@@ -44,6 +45,8 @@ class Robot: public frc::SampleRobot {
 
 	Joystick *joystickMain;
 
+	VisionHelper *visionHelper;
+
 	frc::DigitalInput *gearLimitSwitch;
 
 	AHRS *navX;
@@ -62,10 +65,11 @@ public:
 	}
 
 	void RobotInit() {
+
 		autoInit = false;
 		teleopInit = false;
 
-		autoState = STATE1;
+		//		autoState = STATE1;
 
 		frontMotorL = new CANTalon(1);
 		backMotorL = new CANTalon(2);
@@ -79,6 +83,8 @@ public:
 
 		joystickMain = new Joystick(0);
 
+		visionHelper = new VisionHelper();
+
 		// PORT NEEDS TO BE CHANGED
 		gearLimitSwitch = new DigitalInput(0);
 
@@ -89,6 +95,7 @@ public:
 		chooser.AddObject(autoHighGoal, autoHighGoal);
 		SmartDashboard::PutData("Auto Modes", &chooser);
 
+		SmartDashboard::PutNumber("SpeedSet", 10);
 	}
 
 	void autonomousInit() {
@@ -180,6 +187,14 @@ public:
 		frontMotorR->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorL->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorR->SetControlMode(CANSpeedController::kPercentVbus);
+
+		backMotorL->SetControlMode(CANSpeedController::kSpeed);
+		backMotorL->SetSensorDirection(true);
+		backMotorL->SetPID(SmartDashboard::GetNumber("Current P", 0),
+				SmartDashboard::GetNumber("Current I", 0),
+				SmartDashboard::GetNumber("Current D", 0));
+		SmartDashboard::PutNumber("SetRPM", 0);
+		//		DriverStation::ReportError("Putting");
 	}
 	void OperatorControl() override {
 		//		drive->SetSafetyEnabled(true);
@@ -206,6 +221,22 @@ public:
 					DriverStation::ReportError("Error: Limit switch returning something not 0 or 1");
 				}
 
+//				visionHelper->receiveTCP();
+//				string tcpReceive = visionHelper->tcpReceiveString;
+//				DriverStation::ReportError("TCP Received " + tcpReceive + " from " + visionHelper->hostIP);
+
+				if (visionHelper->receiveHostIP() == true) {
+					string udpReceive = visionHelper->udpReceiveString;
+					DriverStation::ReportError("Received " + udpReceive + " from " + visionHelper->hostIP);
+				} else {
+					DriverStation::ReportError("Still nothing");
+				}
+//				if (visionHelper->hostIPReceived == true) {
+//					visionHelper->receiveTCP();
+//					string tcpReceive = visionHelper->tcpReceiveString;
+//					DriverStation::ReportError("TCP Received " + tcpReceive + " from " + visionHelper->hostIP);
+//				}
+
 				if (joystickMain->GetRawButton(1)) {
 
 					sfDrive->setArcadeInit(false);
@@ -214,7 +245,7 @@ public:
 						DriverStation::ReportError("State 1");
 
 						if (Timer::GetFPGATimestamp() < initialTime + 1) {
-						} else if (sfDrive->driveDistance(96) == true) {
+						} else if (sfDrive->driveDistance(144) == true) {
 							autoState = STATE2;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
@@ -223,15 +254,27 @@ public:
 						DriverStation::ReportError("State 2");
 
 						if (Timer::GetFPGATimestamp() < initialTime + 1) {
-						} else if (sfDrive->turnToAngle(180) == true) {
-							autoState = STATE1;
+						} else if (sfDrive->turnToAngle(90) == true) {
+							autoState = STATE3;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE3) {
+						DriverStation::ReportError("State 3");
+
+						if (Timer::GetFPGATimestamp() < initialTime + 1) {
+						} else if (sfDrive->driveDistance(36) == true) {
+							autoState = STATE4;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
 						}
 					}
 				} else {
 					DriverStation::ReportError("Joystick Drive");
-					sfDrive->joystickDrive(-joystickMain->GetRawAxis(1), -joystickMain->GetRawAxis(4));
+					backMotorL->Set(SmartDashboard::GetNumber("SetRPM", 0));
+					SmartDashboard::PutNumber("GetRPM", backMotorL->GetSpeed());
+					SmartDashboard::PutNumber("Current", backMotorL->GetOutputVoltage());
+					//					sfDrive->joystickDrive(-joystickMain->GetRawAxis(1), -joystickMain->GetRawAxis(4));
 					sfDrive->setPIDInit(false);
 				}
 			} else {

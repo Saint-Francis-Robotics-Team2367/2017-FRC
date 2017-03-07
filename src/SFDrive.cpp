@@ -210,7 +210,7 @@ bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, st
 	backMotorL->Set(ticksLeft);
 	backMotorR->Set(ticksRight);
 
-	if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 5) {
+	if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 3) {
 		DriverStation::ReportError("Done and returning true");
 		ticksBackL = -backMotorL->GetEncPosition();
 		ticksBackR = -backMotorR->GetEncPosition();
@@ -242,10 +242,12 @@ bool SFDrive::pidDrive (int ticksLeft, int ticksRight, std::vector<double> pidCo
 	backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
 	backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
 
+	DriverStation::ReportError("Voltage: " + std::to_string(backMotorL->GetOutputVoltage()));
 	// Checks if current tick position is within +-5% of expected total
-	if (abs(abs(backMotorL->GetEncPosition()) - abs(ticksLeft)) < abs(totalTicks * .02) &&
-			abs(abs(backMotorR->GetEncPosition()) - abs(ticksRight)) < abs(totalTicks * .02) &&
-			abs(ticksLeft) >= abs(totalTicks) && abs(ticksRight) >= abs(totalTicks)) {
+	if (abs(abs(backMotorL->GetEncPosition()) - abs(ticksLeft)) < abs(totalTicks * .03) &&
+			abs(abs(backMotorR->GetEncPosition()) - abs(ticksRight)) < abs(totalTicks * .03) &&
+			abs(ticksLeft) >= abs(totalTicks) && abs(ticksRight) >= abs(totalTicks) &&
+			abs(backMotorL->GetOutputVoltage()) < 0.5 && abs(backMotorR->GetOutputVoltage()) < 0.5) {
 		DriverStation::ReportError("PID drive returning true");
 		//			backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
 		//			backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
