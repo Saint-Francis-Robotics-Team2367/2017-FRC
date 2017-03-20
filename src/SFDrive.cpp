@@ -22,7 +22,7 @@
 #include <DriverStation.h>
 #include <AHRS.h>
 
-#define tickRateForward 100
+#define tickRateForward 65
 #define tickRateTurn 10
 #define wheelDiameter 8
 
@@ -31,11 +31,6 @@ SFDrive::SFDrive(CANTalon *frontLeft, CANTalon *frontRight, CANTalon *backLeft, 
 	backMotorL = backLeft;
 	frontMotorR = frontRight;
 	backMotorR = backRight;
-
-	frontMotorL->SetSensorDirection(true);
-	frontMotorR->SetSensorDirection(true);
-	backMotorL->SetSensorDirection(true);
-	backMotorR->SetSensorDirection(true);
 
 	drive = new RobotDrive(frontMotorL, backMotorL, frontMotorR, backMotorR);
 
@@ -57,13 +52,13 @@ SFDrive::SFDrive(CANTalon *frontLeft, CANTalon *frontRight, CANTalon *backLeft, 
 	pidTurnVals = {0.7, 0, 0};
 }
 
-bool SFDrive::driveDistance(double ticks) {
+bool SFDrive::driveDistance(double distance) {
 	if (pidInit == false) {
 		pidInit = true;
-		if (ticks < 500) {
-			totalTicks = convertDistanceToTicks(ticks);
+		if (distance < 500) {
+			totalTicks = convertDistanceToTicks(distance);
 		} else {
-			totalTicks = ticks;
+			totalTicks = distance;
 		}
 		SmartDashboard::PutNumber("Total Ticks", totalTicks);
 
@@ -117,14 +112,14 @@ bool SFDrive::turnToAngle(double angle) {
 		DriverStation::ReportError("Finished turning");
 
 		// Rezeroes everything when done
-		frontMotorL->SetEncPosition(0);
-		frontMotorR->SetEncPosition(0);
-		backMotorL->SetEncPosition(0);
-		backMotorR->SetEncPosition(0);
-		frontMotorL->Set(0);
-		frontMotorR->Set(0);
-		backMotorL->Set(0);
-		backMotorR->Set(0);
+//		frontMotorL->SetEncPosition(0);
+//		frontMotorR->SetEncPosition(0);
+//		backMotorL->SetEncPosition(0);
+//		backMotorR->SetEncPosition(0);
+		frontMotorL->Set(frontMotorL->GetEncPosition());
+		frontMotorR->Set(frontMotorR->GetEncPosition());
+		backMotorL->Set(backMotorL->GetEncPosition());
+		backMotorR->Set(backMotorR->GetEncPosition());
 
 		return true;
 	} else {
@@ -204,6 +199,7 @@ bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, st
 		pidInit = true;
 	}
 	SmartDashboard::PutNumber("Angle to Get", initialAngle + degreesFromInit);
+	DriverStation::ReportError(std::to_string(initialAngle + degreesFromInit));
 
 	//		frontMotorL->Set(x);
 	//		frontMotorR->Set(-x);
@@ -212,10 +208,10 @@ bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, st
 
 	if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 3) {
 		DriverStation::ReportError("Done and returning true");
-		ticksBackL = -backMotorL->GetEncPosition();
-		ticksBackR = -backMotorR->GetEncPosition();
-		backMotorL->Set(ticksBackL);
-		backMotorR->Set(ticksBackR);
+//		ticksBackL = -backMotorL->GetEncPosition();
+//		ticksBackR = -backMotorR->GetEncPosition();
+//		backMotorL->Set(ticksBackL);
+//		backMotorR->Set(ticksBackR);
 		//			SmartDashboard::PutNumber("Current Setpoint Left", ticksBackL);
 		//			SmartDashboard::PutNumber("Current Setpoint Right", ticksBackR);
 

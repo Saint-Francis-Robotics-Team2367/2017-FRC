@@ -37,6 +37,7 @@ public:
 
 	AHRS *navX;
 	float initialAngle;
+	int totalTicks;
 
 	double convertDistanceToTicks (double inches);
 	bool driveDistance(double ticks);
@@ -57,7 +58,7 @@ private:
 	std::vector<double> pidTurnVals;
 
 	bool arcadeInit, pidInit;
-	int ticksBackL, ticksBackR, totalTicks;
+	int ticksBackL, ticksBackR;
 	int totalCycles;
 
 	void ArcadeInit();

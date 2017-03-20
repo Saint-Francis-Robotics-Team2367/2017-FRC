@@ -12,7 +12,7 @@
 #include <DriverStation.h>
 #define MAXSIZE 999
 #define TCPPORT 2367
-#define UDPPORT 7330
+#define UDPPORT 2395
 
 class VisionHelper {
 public:
@@ -21,14 +21,19 @@ public:
 	string hostIP = "255.255.255.255";
 	char udpReceiveString[MAXSIZE + 1];
 
+	string description = "";
+
 	TCPSocket *tcpSocket;
 	char tcpReceiveString[1024];
 
 	bool hostIPReceived;
 
 	VisionHelper();
-	bool receiveHostIP();
+	bool receivePendingUDP();
 	bool receiveTCP();
+
+	bool SetSocketBlockingEnabled(int fd, bool blocking);
+
 	virtual ~VisionHelper();
 };
 

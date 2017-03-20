@@ -177,6 +177,7 @@ unsigned short Socket::resolveService(const string &service,
     return ntohs(serv->s_port);    /* Found port (network byte order) by name */
 }
 
+
 // CommunicatingSocket Code
 
 CommunicatingSocket::CommunicatingSocket(int type, int protocol)
@@ -294,10 +295,11 @@ UDPSocket::UDPSocket(unsigned short localPort)  throw(SocketException) :
   setBroadcast();
 }
 
-UDPSocket::UDPSocket(const string &localAddress, unsigned short localPort)
+UDPSocket::UDPSocket(string &localAddress, unsigned short localPort)
      throw(SocketException) : CommunicatingSocket(SOCK_DGRAM, IPPROTO_UDP) {
   setLocalAddressAndPort(localAddress, localPort);
   setBroadcast();
+//  localAddress = std::to_string(sockDesc);
 }
 
 void UDPSocket::setBroadcast() {
@@ -390,3 +392,4 @@ void UDPSocket::leaveGroup(const string &multicastGroup) throw(SocketException) 
 		  throw SocketException("Error using ioctl");
 	  return value;
   }
+

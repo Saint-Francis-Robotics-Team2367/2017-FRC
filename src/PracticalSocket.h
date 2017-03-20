@@ -275,7 +275,7 @@ public:
    *   @param localPort local port
    *   @exception SocketException thrown if unable to create UDP socket
    */
-  UDPSocket(const string &localAddress, unsigned short localPort)
+  UDPSocket(string &localAddress, unsigned short localPort)
       throw(SocketException);
 
   /**
@@ -333,6 +333,7 @@ public:
   void leaveGroup(const string &multicastGroup) throw(SocketException);
 
   bool hasPendingPacket() throw (SocketException);
+
 private:
   void setBroadcast();
 };
