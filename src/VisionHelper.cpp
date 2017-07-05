@@ -2,7 +2,7 @@
  * VisionHelper.cpp
  *
  *  Created on: Feb 11, 2017
- *      Author: Magneto
+ *      Author: Sameer Vijay
  */
 
 #include <VisionHelper.h>
@@ -11,11 +11,20 @@
 VisionHelper::VisionHelper() {
 	description = "255.255.255.255";
 	udpSocket = new UDPSocket(UDPPORT);
-//	udpSocket = new UDPSocket(description, UDPPORT);
-//	SetSocketBlockingEnabled(atoi(description.c_str()), false);
+	//	udpSocket = new UDPSocket(description, UDPPORT);
+	//	SetSocketBlockingEnabled(atoi(description.c_str()), false);
 	hostIPReceived = false;
-//	hostIP = "10.23.67.182";
-//	tcpSocket = new TCPSocket(hostIP, TCPPORT);
+	//	hostIP = "10.23.67.182";
+	//	tcpSocket = new TCPSocket(hostIP, TCPPORT);
+}
+
+bool VisionHelper::checkPendingPacket(int *last) {
+	if (udpSocket->hasPendingPacket()) {
+		receivePendingUDP();
+		*last = std::stoi(udpReceiveString);
+		return true;
+	}
+	return false;
 }
 
 bool VisionHelper::receiveTCP() {
@@ -28,9 +37,9 @@ bool VisionHelper::receiveTCP() {
 
 	for (;;) {
 		while ((bytesReceived = (*tcpSocket).recv(tcpReceiveString, 999)) > 0) { // Zero means end of transmission
-//			cout << "Received: " << tcpReceiveString;
+			//			cout << "Received: " << tcpReceiveString;
 		}
-//		sleep(1.0);
+		//		sleep(1.0);
 	}
 	return true;
 }
@@ -44,28 +53,10 @@ bool VisionHelper::receivePendingUDP() {
 	if (bytesReceived == 0)
 		return false;
 	else {
-//		tcpSocket = new TCPSocket(hostIP, TCPPORT);
+		//		tcpSocket = new TCPSocket(hostIP, TCPPORT);
 		hostIPReceived = true;
 		return true;
 	}
-}
-
-#include <fcntl.h>
-
-/** Returns true on success, or false if there was an error */
-bool VisionHelper::SetSocketBlockingEnabled(int fd, bool blocking)
-{
-   if (fd < 0) return false;
-
-#ifdef WIN32
-   unsigned long mode = blocking ? 0 : 1;
-   return (ioctlsocket(fd, FIONBIO, &mode) == 0) ? true : false;
-#else
-   int flags = fcntl(fd, F_GETFL, 0);
-   if (flags < 0) return false;
-   flags = blocking ? (flags&~O_NONBLOCK) : (flags|O_NONBLOCK);
-   return (fcntl(fd, F_SETFL, flags) == 0) ? true : false;
-#endif
 }
 
 VisionHelper::~VisionHelper() {

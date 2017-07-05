@@ -39,6 +39,8 @@ public:
 	float initialAngle;
 	int totalTicks;
 
+	bool mediumDrive;
+
 	double convertDistanceToTicks (double inches);
 	bool driveDistance(double ticks);
 	bool turnToAngle(double angle);

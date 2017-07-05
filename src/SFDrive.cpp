@@ -2,7 +2,7 @@
  * SFDrive.cpp
  *
  *  Created on: Feb 6, 2017
- *      Author: Magneto
+ *      Author: Sameer Vijay
  */
 
 #include <SFDrive.h>
@@ -22,9 +22,19 @@
 #include <DriverStation.h>
 #include <AHRS.h>
 
-#define tickRateForward 65
-#define tickRateTurn 10
-#define wheelDiameter 8
+/*
+#define tickRateForwardBig 325
+#define tickRateForwardMedium 175
+#define tickRateForwardSmall 325
+*/
+#define tickRateForwardBig 200
+#define tickRateForwardMedium 175
+#define tickRateForwardSmall 200
+// 100 is okay for large turns; smaller turns need smaller tick rates
+// 35 is good for small angles
+#define tickRateTurnBig 35
+#define tickRateTurnSmall 35
+#define wheelDiameter 4
 
 SFDrive::SFDrive(CANTalon *frontLeft, CANTalon *frontRight, CANTalon *backLeft, CANTalon *backRight) {
 	frontMotorL = frontLeft;
@@ -48,17 +58,22 @@ SFDrive::SFDrive(CANTalon *frontLeft, CANTalon *frontRight, CANTalon *backLeft, 
 	initialAngle = 0;
 	totalCycles = 0;
 
-	pidDriveVals = {0.24, 0, 0.18};
-	pidTurnVals = {0.7, 0, 0};
+	//	pidDriveVals = {0.24, 0, 0.18};
+	//	pidTurnVals = {0.7, 0, 0};
+
+	pidDriveVals = {0.5, 0, 0.4};
+	pidTurnVals = {0.4, 0, 0};
+
+	mediumDrive = false;
 }
 
 bool SFDrive::driveDistance(double distance) {
 	if (pidInit == false) {
 		pidInit = true;
 		if (distance < 500) {
-			totalTicks = convertDistanceToTicks(distance);
+			totalTicks = -convertDistanceToTicks(distance);
 		} else {
-			totalTicks = distance;
+			totalTicks = -distance;
 		}
 		SmartDashboard::PutNumber("Total Ticks", totalTicks);
 
@@ -112,14 +127,14 @@ bool SFDrive::turnToAngle(double angle) {
 		DriverStation::ReportError("Finished turning");
 
 		// Rezeroes everything when done
-//		frontMotorL->SetEncPosition(0);
-//		frontMotorR->SetEncPosition(0);
-//		backMotorL->SetEncPosition(0);
-//		backMotorR->SetEncPosition(0);
-		frontMotorL->Set(frontMotorL->GetEncPosition());
-		frontMotorR->Set(frontMotorR->GetEncPosition());
-		backMotorL->Set(backMotorL->GetEncPosition());
-		backMotorR->Set(backMotorR->GetEncPosition());
+		//		frontMotorL->SetEncPosition(0);
+		//		frontMotorR->SetEncPosition(0);
+		//		backMotorL->SetEncPosition(0);
+		//		backMotorR->SetEncPosition(0);
+		//		frontMotorL->Set(frontMotorL->GetEncPosition());
+		//		frontMotorR->Set(frontMotorR->GetEncPosition());
+		//		backMotorL->Set(backMotorL->GetEncPosition());
+		//		backMotorR->Set(backMotorR->GetEncPosition());
 
 		return true;
 	} else {
@@ -137,10 +152,11 @@ void SFDrive::joystickDrive(double forwardValue, double rotationValue) {
 }
 
 void SFDrive::ArcadeInit() {
-	frontMotorL->SetEncPosition(0);
-	frontMotorR->SetEncPosition(0);
-	backMotorL->SetEncPosition(0);
-	backMotorR->SetEncPosition(0);
+	DriverStation::ReportError("Arcade Init");
+//	frontMotorL->SetEncPosition(0);
+//	frontMotorR->SetEncPosition(0);
+//	backMotorL->SetEncPosition(0);
+//	backMotorR->SetEncPosition(0);
 
 	frontMotorL->SetControlMode(CANSpeedController::kPercentVbus);
 	frontMotorR->SetControlMode(CANSpeedController::kPercentVbus);
@@ -172,6 +188,10 @@ void SFDrive::PIDInit(std::vector<double> pidConstants) {
 	backMotorL->Set(0);
 	backMotorR->Set(0);
 
+	//#warning "REMOVE THIS"
+	//	pidConstants[0] = SmartDashboard::GetNumber("Current P", 0);
+	//	pidConstants[1] = SmartDashboard::GetNumber("Current I", 0);
+	//	pidConstants[2] = SmartDashboard::GetNumber("Current D", 0);
 	frontMotorL->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
 	frontMotorR->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
 	backMotorL->SetPID(pidConstants[0], pidConstants[1], pidConstants[2]);
@@ -189,7 +209,6 @@ void SFDrive::PIDInit(std::vector<double> pidConstants) {
 	//		pidDrive[0] = SmartDashboard::GetNumber("Current P", 0);
 	//		pidDrive[1] = SmartDashboard::GetNumber("Current I", 0);
 	//		pidDrive[2] = SmartDashboard::GetNumber("Current D", 0);
-
 }
 
 bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, std::vector<double> pidConstants) {
@@ -203,15 +222,15 @@ bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, st
 
 	//		frontMotorL->Set(x);
 	//		frontMotorR->Set(-x);
-	backMotorL->Set(ticksLeft);
-	backMotorR->Set(ticksRight);
+	frontMotorL->Set(ticksLeft);
+	frontMotorR->Set(ticksRight);
 
-	if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 3) {
+	if (abs(abs(navX->GetAngle()) - abs(initialAngle + degreesFromInit)) < 2) {
 		DriverStation::ReportError("Done and returning true");
-//		ticksBackL = -backMotorL->GetEncPosition();
-//		ticksBackR = -backMotorR->GetEncPosition();
-//		backMotorL->Set(ticksBackL);
-//		backMotorR->Set(ticksBackR);
+		//		ticksBackL = -backMotorL->GetEncPosition();
+		//		ticksBackR = -backMotorR->GetEncPosition();
+//		frontMotorL->Set(ticksBackL);
+//		frontMotorR->Set(ticksBackR);
 		//			SmartDashboard::PutNumber("Current Setpoint Left", ticksBackL);
 		//			SmartDashboard::PutNumber("Current Setpoint Right", ticksBackR);
 
@@ -219,12 +238,22 @@ bool SFDrive::pidTurn (double degreesFromInit, int ticksLeft, int ticksRight, st
 	} else {
 		//			resetMotors();
 
-		if (degreesFromInit < 0) {
-			ticksBackL -= tickRateTurn;
-			ticksBackR -= tickRateTurn;
+		if (degreesFromInit > 0) {
+			if (abs(degreesFromInit) > 25) {
+				ticksBackL -= tickRateTurnBig;
+				ticksBackR -= tickRateTurnBig;
+			} else {
+				ticksBackL -= tickRateTurnSmall;
+				ticksBackR -= tickRateTurnSmall;
+			}
 		} else {
-			ticksBackL += tickRateTurn;
-			ticksBackR += tickRateTurn;
+			if (abs(degreesFromInit) > 25) {
+				ticksBackL += tickRateTurnBig;
+				ticksBackR += tickRateTurnBig;
+			} else {
+				ticksBackL += tickRateTurnSmall;
+				ticksBackR += tickRateTurnSmall;
+			}
 		}
 
 		return false;
@@ -235,32 +264,44 @@ bool SFDrive::pidDrive (int ticksLeft, int ticksRight, std::vector<double> pidCo
 
 	//		frontMotorL->Set(x);
 	//		frontMotorR->Set(-x);
-	backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
-	backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
+	frontMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
+	frontMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
 
 	DriverStation::ReportError("Voltage: " + std::to_string(backMotorL->GetOutputVoltage()));
 	// Checks if current tick position is within +-5% of expected total
-	if (abs(abs(backMotorL->GetEncPosition()) - abs(ticksLeft)) < abs(totalTicks * .03) &&
-			abs(abs(backMotorR->GetEncPosition()) - abs(ticksRight)) < abs(totalTicks * .03) &&
+	if (abs(abs(frontMotorL->GetEncPosition()) - abs(ticksLeft)) < abs(totalTicks * .03) &&
+			abs(abs(frontMotorR->GetEncPosition()) - abs(ticksRight)) < abs(totalTicks * .03) &&
 			abs(ticksLeft) >= abs(totalTicks) && abs(ticksRight) >= abs(totalTicks) &&
-			abs(backMotorL->GetOutputVoltage()) < 0.5 && abs(backMotorR->GetOutputVoltage()) < 0.5) {
+			abs(frontMotorL->GetOutputVoltage()) < 0.5 && abs(frontMotorR->GetOutputVoltage()) < 0.5) {
 		DriverStation::ReportError("PID drive returning true");
 		//			backMotorL->Set((totalTicks > 0 ? ticksLeft : -ticksLeft));
 		//			backMotorR->Set((totalTicks > 0 ? -ticksRight : ticksRight));
 		return true;
 	} else {
 		if (abs(ticksBackL) < abs(totalTicks)) {
-			ticksBackL += tickRateForward;
+			if (mediumDrive == true) {
+				ticksBackL += tickRateForwardMedium;
+			} else if (abs(totalTicks) < 60000) {
+				ticksBackL += tickRateForwardSmall;
+			} else {
+				ticksBackL += tickRateForwardBig;
+			}
 		}
 		if (abs(ticksBackR) < abs(totalTicks)) {
-			ticksBackR += tickRateForward;
+			if (mediumDrive == true) {
+				ticksBackR += tickRateForwardMedium;
+			} else if (abs(totalTicks) < 60000) {
+				ticksBackR += tickRateForwardSmall;
+			} else {
+				ticksBackR += tickRateForwardBig;
+			}
 		}
 		return false;
 	}
 }
 
 double SFDrive::convertDistanceToTicks (double inches) {
-		return inches / wheelDiameter / 3.1415 * 1024 * 4;
+	return inches / wheelDiameter / 3.1415 * 1024 * 4 * 60/14;
 }
 void SFDrive::resetMotors() {
 	if (drive->GetGlobalError().GetCode() != 0) {

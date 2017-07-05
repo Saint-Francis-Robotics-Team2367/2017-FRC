@@ -1,3 +1,10 @@
+/*
+ * Robot.cpp
+ *
+ *  Created on: Feb 11, 2017
+ *      Author: Sameer Vijay
+ */
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -17,9 +24,12 @@
 #include <VisionHelper.h>
 #include <thread>
 
-#define tickRateForward 100
-#define tickRateTurn 10
-#define wheelDiameter 8
+#define tickRateForward 325
+// 100 is okay for large turns; smaller turns need smaller tick rates
+// 35 is good for small angles
+#define tickRateTurnBig 100
+#define tickRateTurnSmall 35
+#define wheelDiameter 4
 
 #define driveTurnConstant 0.0
 
@@ -32,25 +42,36 @@
 #define backRID 5
 #define versaRID 4
 #define climberID 7
+
+Talon ID Configuration on Robot
+	5	1
+	6	2
+	7	3
+	8	4
  */
 
 #define versaLID 7
-#define frontLID 2
-#define backLID 1
-#define frontRID 3
-#define backRID 4
-#define versaRID 5
-#define climberID 6
+#define frontLID 5
+#define backLID 6
+#define frontRID 1
+#define backRID 2
+#define versaRID 8
+#define climberID 3
+#define lightID 4
 
 class Robot: public frc::SampleRobot {
 
 	enum AutoState {
+		STATE0,
 		STATE1,
 		STATE2,
 		STATE3,
 		STATE4,
 		STATE5,
 		STATE6,
+		STATE7,
+		STATE8,
+		STATE9,
 		STOP,
 	};
 	AutoState autoState;
@@ -63,8 +84,8 @@ class Robot: public frc::SampleRobot {
 	CANTalon *backMotorR;
 	CANTalon *versaMotorL;
 	CANTalon *versaMotorR;
-
 	CANTalon *climbingMotor;
+	CANTalon *lightTalon;
 
 	DoubleSolenoid *rampSolenoid;
 	DoubleSolenoid *dropOffSolenoid;
@@ -84,7 +105,8 @@ class Robot: public frc::SampleRobot {
 
 	AHRS *navX;
 
-	int lastDistance, lastAngle;
+	int lastDistance, lastAngle, lastReceived;
+	double lastReceivedTime;
 
 	int forwardCycles;
 
@@ -116,10 +138,11 @@ public:
 		versaMotorL = new CANTalon(versaLID);
 		versaMotorR = new CANTalon(versaRID);
 		climbingMotor = new CANTalon(climberID);
+		lightTalon = new CANTalon(lightID);
 
-		rampSolenoid = new DoubleSolenoid(2, 3);
-		dropOffSolenoid = new DoubleSolenoid(0, 1);
-		climberSolenoid = new DoubleSolenoid(4, 5);
+		rampSolenoid = new DoubleSolenoid(5, 1);
+		dropOffSolenoid = new DoubleSolenoid(6, 7);
+		climberSolenoid = new DoubleSolenoid(2, 3);
 
 		navX = new AHRS(SerialPort::kMXP);
 
@@ -149,7 +172,7 @@ public:
 		chooser.AddObject(autoGearL, autoGearL);
 		chooser.AddObject(autoGearR, autoGearR);
 		chooser.AddObject(autoHighGoal, autoHighGoal);
-		SmartDashboard::PutData("Auto Modes", &chooser);
+		SmartDashboard::PutData("Auto Modes2", &chooser);
 
 		SmartDashboard::PutNumber("SpeedSet", 10);
 	}
@@ -176,7 +199,10 @@ public:
 		initialTime = Timer::GetFPGATimestamp();
 		forwardCycles = 0;
 
-		SmartDashboard::PutData("Auto Modes", &chooser);
+		sfDrive->mediumDrive = false;
+		sfDrive->setPIDInit(false);
+
+		SmartDashboard::PutData("Auto Modes2", &chooser);
 
 		DriverStation::ReportError("Auto init");
 	}
@@ -198,97 +224,325 @@ public:
 				SmartDashboard::PutNumber("Error 1", abs(sfDrive->getSetpointLeft()) - abs(backMotorL->GetEncPosition()));
 				//				SmartDashboard::PutNumber("Current Setpoint Left", sfDrive->getSetpointLeft());
 				//				SmartDashboard::PutNumber("Current Setpoint Right", sfDrive->getSetpointRight());
-				SmartDashboard::PutNumber("Current P", backMotorL->GetP());
-				SmartDashboard::PutNumber("Current I", backMotorL->GetI());
-				SmartDashboard::PutNumber("Current D", backMotorL->GetD());
-				SmartDashboard::PutNumber("Left Back", backMotorL->GetEncPosition());
-				SmartDashboard::PutNumber("Right Back", backMotorR->GetEncPosition());
+				//				SmartDashboard::PutNumber("Current P", backMotorL->GetP());
+				//				SmartDashboard::PutNumber("Current I", backMotorL->GetI());
+				//				SmartDashboard::PutNumber("Current D", backMotorL->GetD());
+				//				SmartDashboard::PutNumber("Left Back", backMotorL->GetEncPosition());
+				//				SmartDashboard::PutNumber("Right Back", backMotorR->GetEncPosition());
 
 				//				std::string ticksAndTime = std::to_string(backMotorL->GetEncPosition()) + " "+ std::to_string(Timer::GetFPGATimestamp());
 				//				DriverStation::ReportError(ticksAndTime);
 
+				lightTalon->Set(SmartDashboard::GetNumber("LightBright", 0)/12.0);
+				//				lightTalon->Set(7.53/12.0);
+
+				SmartDashboard::PutNumber("LastReceived", lastReceived);
+				if (visionHelper->checkPendingPacket(&lastReceived) == true) {
+					lastReceivedTime = Timer::GetFPGATimestamp();
+				}
+
 				if (autoSelected == autoNothing) {
 
 				} else if (autoSelected == autoForward) {
-					if (forwardCycles < 4) {
-						if (autoState == STATE1) {
-							DriverStation::ReportError("State 1");
-							if (Timer::GetFPGATimestamp() < initialTime + 1.5) {
-								sfDrive->joystickDrive(1.0, 0);
-								//							versaMotorL->Set(backLID);
-								//							versaMotorR->Set(backRID);
-							} else {
-								autoState = STATE2;
-								initialTime = Timer::GetFPGATimestamp();
-								forwardCycles++;
-							}
-						} else if (autoState == STATE2) {
-							DriverStation::ReportError("State 2");
-							if (Timer::GetFPGATimestamp() < initialTime + 1) {
-								// delay between bursts
-							} else {
-								autoState = STATE1;
-							}
-						}
-					}
-					/*
 					if (autoState == STATE1) {
 						DriverStation::ReportError("State 1");
-						if (sfDrive->driveDistance(108) == true) {
-							autoState = STATE2;
+
+						dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						autoState = STATE2;
+					} else if (autoState == STATE2) {
+						sfDrive->mediumDrive = true;
+						if (sfDrive->driveDistance(150) == true) {
+							autoState = STOP;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
+							sfDrive->mediumDrive = false;
 						}
-					} else if (autoState == STATE2) {
-
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto Complete");
 					}
-					 */
 				} else if (autoSelected == autoGearF) {
 					if (autoState == STATE1) {
-						DriverStation::ReportError("State 1: driving 50");
-						if (sfDrive->driveDistance(35) == true) {
-							autoState = STATE2;
+						// Pull drop-off pneumatic up and ramp down in case it isn't already
+						DriverStation::ReportError("State 1");
+
+						dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						sfDrive->setPIDInit(false);
+						initialTime = Timer::GetFPGATimestamp();
+						autoState = STATE2;
+					} else if (autoState == STATE2) {
+						DriverStation::ReportError("State 2");
+						sfDrive->mediumDrive = true;
+						// Drive distance - half robot length + 4 in buffer
+						if (sfDrive->driveDistance(110 - 34/2 - 3) == true) {
+							autoState = STATE3;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
-							lastDistanceExecuted = abs(backMotorL->GetEncPosition());
-
-							double error = abs(autoStartingAngle) - abs(navX->GetAngle());
-							if (error < 4)
-								autoState = STATE3;
-							else {
-								autoState = STATE2;
-								angleToTurn = autoStartingAngle - navX->GetAngle();
-							}
+							sfDrive->mediumDrive = false;
 						}
+						if (Timer::GetFPGATimestamp() > initialTime + 4) {
+							autoState = STATE3;
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE3) {
+						// Push drop off pneumatic down and ramp up; hopefully gear is on peg here; wait for a second
+						DriverStation::ReportError("State 3");
+
+						if (dropOffSolenoid->Get() == DoubleSolenoid::kForward)
+							dropOffSolenoid->Set(DoubleSolenoid::kReverse);
+						if (rampSolenoid->Get() == DoubleSolenoid::kForward)
+							rampSolenoid->Set(DoubleSolenoid::kReverse);
+
+						if (Timer::GetFPGATimestamp() > initialTime + 1) {
+							autoState = STATE4;
+							sfDrive->setArcadeInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE4) {
+						DriverStation::ReportError("State 4");
+						//						sfDrive->mediumDrive = true;
+						//						if (sfDrive->driveDistance(-42) == true) {
+						//							autoState = STATE5;
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+						if (Timer::GetFPGATimestamp() < initialTime + 1.5) {
+							sfDrive->joystickDrive(0.5, 0.0);
+						} else {
+							autoState = STATE5;
+						}
+					} else if (autoState == STATE5) {
+						// Pull ramp down and drop offs up to get ready for a gear cycle in teleop
+						DriverStation::ReportError("State 5");
+
+						if (dropOffSolenoid->Get() == DoubleSolenoid::kReverse)
+							dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						if (rampSolenoid->Get() == DoubleSolenoid::kReverse)
+							rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						autoState = STOP;
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto Complete");
+					}
+				} else if (autoSelected == autoGearL) {
+					if (autoState == STATE1) {
+						// Pull drop-off pneumatic up and ramp down in case it isn't already
+						DriverStation::ReportError("State 1");
+
+						dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						sfDrive->setPIDInit(false);
+						initialTime = Timer::GetFPGATimestamp();
+						autoState = STATE2;
 					} else if (autoState == STATE2) {
-						DriverStation::ReportError("State 2: turning " + std::to_string(angleToTurn));
-						if (sfDrive->turnToAngle(angleToTurn) == true) {
+						// Initial drive forward
+						DriverStation::ReportError("State 2");
+						if (sfDrive->driveDistance(106 - 34/2 + 2) == true) {
 							autoState = STATE3;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
 						}
 					} else if (autoState == STATE3) {
-						DriverStation::ReportError("State 3: driving " + std::to_string(sfDrive->convertDistanceToTicks(80) - lastDistanceExecuted));
-						if (sfDrive->driveDistance(sfDrive->convertDistanceToTicks(61) - lastDistanceExecuted) == true) {
-							autoState = STATE2;
+						// Initial turn to semi-face peg
+						DriverStation::ReportError("State 3");
+						if (sfDrive->turnToAngle(60) == true) {
+							autoState = STATE4;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
-							lastDistanceExecuted = abs(backMotorL->GetEncPosition());
-
-							double error = abs(autoStartingAngle) - abs(navX->GetAngle());
-							if (error < 4)
-								autoState = STATE5;
-							else {
-								autoState = STATE4;
-								angleToTurn = autoStartingAngle - navX->GetAngle();
-							}
 						}
-					} else if (autoState == STATE6) {
+					} else if (autoState == STATE4) {
+						// Small drive forward after turning to face peg
+						DriverStation::ReportError("State 4");
+						if (sfDrive->driveDistance(39) == true) {
+							autoState = STATE7;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+						if (Timer::GetFPGATimestamp() > initialTime + 2) {
+							autoState = STATE7;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+						//					} else if (autoState == STATE4) {
+						//						// Waiting to make sure vision returns an angle
+						//						DriverStation::ReportError("State 4");
+						//						if (Timer::GetFPGATimestamp() > initialTime + 1.5) {
+						//							if (Timer::GetFPGATimestamp() - lastReceivedTime < 2) {
+						//								autoState = STATE5;
+						//								lastAngle = lastReceived;
+						//							} else {
+						//								autoState = STOP;
+						//							}
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+						//					} else if (autoState == STATE5) {
+						//						// Correcting to angle from vision
+						//						DriverStation::ReportError("State 5");
+						//						if (sfDrive->turnToAngle(lastAngle) == true) {
+						//							autoState = STATE6;
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+						//					} else if (autoState == STATE6) {
+						//						// Drive up to peg
+						//						DriverStation::ReportError("State 6");
+						//						if (sfDrive->driveDistance(25) == true) {
+						//							autoState = STATE7;
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+					} else if (autoState == STATE7) {
+						// Push drop off pneumatic down and ramp up; hopefully gear is on peg here; wait for a second
+						DriverStation::ReportError("State 7");
 
+						dropOffSolenoid->Set(DoubleSolenoid::kReverse);
+						rampSolenoid->Set(DoubleSolenoid::kReverse);
+
+						if (Timer::GetFPGATimestamp() > initialTime + 0.75) {
+							autoState = STATE8;
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE8) {
+						DriverStation::ReportError("State 8");
+						if (Timer::GetFPGATimestamp() < initialTime + 1.5) {
+							sfDrive->joystickDrive(0.5, 0.0);
+						} else {
+							autoState = STATE9;
+						}
+						/*
+											if (sfDrive->driveDistance(-42) == true) {
+												autoState = STATE9;
+												sfDrive->setPIDInit(false);
+												initialTime = Timer::GetFPGATimestamp();
+											}
+						 */
+					} else if (autoState == STATE9) {
+						// Pull ramp down and drop offs up to get ready for a gear cycle in teleop
+						DriverStation::ReportError("State 9");
+
+						if (dropOffSolenoid->Get() == DoubleSolenoid::kReverse)
+							dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						if (rampSolenoid->Get() == DoubleSolenoid::kReverse)
+							rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						autoState = STOP;
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto Complete");
 					}
-				} else if (autoSelected == autoGearL) {
-
 				} else if (autoSelected == autoGearR) {
+
+					if (autoState == STATE1) {
+						// Pull drop-off pneumatic up and ramp down in case it isn't already
+						DriverStation::ReportError("State 1");
+
+						dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						sfDrive->setPIDInit(false);
+						initialTime = Timer::GetFPGATimestamp();
+						autoState = STATE2;
+					} else if (autoState == STATE2) {
+						// Initial drive forward
+						DriverStation::ReportError("State 2");
+						if (sfDrive->driveDistance(106 - 34/2 + 2) == true) {
+							autoState = STATE3;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE3) {
+						// Initial turn to semi-face peg
+						DriverStation::ReportError("State 3");
+						if (sfDrive->turnToAngle(-58) == true) {
+							autoState = STATE4;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE4) {
+						// Small drive forward after turning to face peg
+						DriverStation::ReportError("State 4");
+						if (sfDrive->driveDistance(39) == true) {
+							autoState = STATE7;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+						if (Timer::GetFPGATimestamp() > initialTime + 2) {
+							autoState = STATE7;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+						//					} else if (autoState == STATE4) {
+						//						// Waiting to make sure vision returns an angle
+						//						DriverStation::ReportError("State 4");
+						//						if (Timer::GetFPGATimestamp() > initialTime + 1.5) {
+						//							if (Timer::GetFPGATimestamp() - lastReceivedTime < 2) {
+						//								autoState = STATE5;
+						//								lastAngle = lastReceived;
+						//							} else {
+						//								autoState = STOP;
+						//							}
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+						//					} else if (autoState == STATE5) {
+						//						// Correcting to angle from vision
+						//						DriverStation::ReportError("State 5");
+						//						if (sfDrive->turnToAngle(lastAngle) == true) {
+						//							autoState = STATE6;
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+						//					} else if (autoState == STATE6) {
+						//						// Drive up to peg
+						//						DriverStation::ReportError("State 6");
+						//						if (sfDrive->driveDistance(25) == true) {
+						//							autoState = STATE7;
+						//							sfDrive->setPIDInit(false);
+						//							initialTime = Timer::GetFPGATimestamp();
+						//						}
+					} else if (autoState == STATE7) {
+						// Push drop off pneumatic down and ramp up; hopefully gear is on peg here; wait for a second
+						DriverStation::ReportError("State 7");
+
+						dropOffSolenoid->Set(DoubleSolenoid::kReverse);
+						rampSolenoid->Set(DoubleSolenoid::kReverse);
+
+						if (Timer::GetFPGATimestamp() > initialTime + 0.75) {
+							autoState = STATE8;
+							initialTime = Timer::GetFPGATimestamp();
+							sfDrive->setArcadeInit(false);
+						}
+					} else if (autoState == STATE8) {
+						DriverStation::ReportError("State 8");
+						if (Timer::GetFPGATimestamp() < initialTime + 1.1) {
+							sfDrive->joystickDrive(0.7, 0.0);
+						} else {
+							autoState = STATE9;
+						}
+						/*
+																if (sfDrive->driveDistance(-42) == true) {
+																	autoState = STATE9;
+																	sfDrive->setPIDInit(false);
+																	initialTime = Timer::GetFPGATimestamp();
+																}
+						 */
+					} else if (autoState == STATE9) {
+						// Pull ramp down and drop offs up to get ready for a gear cycle in teleop
+						DriverStation::ReportError("State 9");
+
+						if (dropOffSolenoid->Get() == DoubleSolenoid::kReverse)
+							dropOffSolenoid->Set(DoubleSolenoid::kForward);
+						if (rampSolenoid->Get() == DoubleSolenoid::kReverse)
+							rampSolenoid->Set(DoubleSolenoid::kForward);
+
+						autoState = STOP;
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto Complete");
+					}
 				} else if (autoSelected == autoHighGoal) {
 				}
 			} else {
@@ -303,7 +557,7 @@ public:
 
 		navX->Reset();
 
-		autoState = STATE1;
+		autoState = STATE0;
 		timeDrop = 0;
 		debounceTime = 0;
 
@@ -311,6 +565,9 @@ public:
 		frontMotorR->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorL->SetControlMode(CANSpeedController::kPercentVbus);
 		backMotorR->SetControlMode(CANSpeedController::kPercentVbus);
+
+		lightTalon->SetControlMode(CANSpeedController::kPercentVbus);
+
 		versaMotorL->SetControlMode(CANSpeedController::kFollower);
 		versaMotorR->SetControlMode(CANSpeedController::kFollower);
 
@@ -322,9 +579,10 @@ public:
 		//		SmartDashboard::PutNumber("SetRPM", 0);
 		//		DriverStation::ReportError("Putting");
 
-		SmartDashboard::PutData("Auto Modes", &chooser);
+		SmartDashboard::PutData("Auto Modes2", &chooser);
 
-		//		SmartDashboard::PutNumber("AngleToTurn2", 0);
+		//		SmartDashboard::PutNumber("LightBright", 7.53);
+
 	}
 	void OperatorControl() override {
 		//		drive->SetSafetyEnabled(true);
@@ -334,34 +592,32 @@ public:
 					teleopInit = true;
 					teleoperatedInit();
 				}
-				//				SmartDashboard::PutNumber("AngleX", imu->GetAngleX());
-				//				SmartDashboard::PutNumber("AngleY", imu->GetAngleY());
-				//				SmartDashboard::PutNumber("AngleZ", imu->GetAngleZ());
 				SmartDashboard::PutNumber("NavX Angle", navX->GetAngle());
-				SmartDashboard::PutNumber("Ticks 1", backMotorL->GetEncPosition());
-				//				SmartDashboard::PutNumber("SetpointLeft", ticksBackL);
+				SmartDashboard::PutNumber("Ticks 1", frontMotorL->GetEncPosition());
 				SmartDashboard::PutNumber("Setpoint 1", sfDrive->getSetpointLeft());
 				SmartDashboard::PutNumber("Total Ticks", sfDrive->totalTicks);
-				SmartDashboard::PutNumber("Error 1", abs(sfDrive->getSetpointLeft()) - abs(backMotorL->GetEncPosition()));
-				//				SmartDashboard::PutNumber("LastReceived", lastAngle);
+				SmartDashboard::PutNumber("Error 1", abs(sfDrive->getSetpointLeft()) - abs(frontMotorL->GetEncPosition()));
+
+				SmartDashboard::PutData("Auto Modes2", &chooser);
 
 				if (dropOffSolenoid->Get() == DoubleSolenoid::kForward)
-					SmartDashboard::PutString("Drop Off", "Down");
-				else
 					SmartDashboard::PutString("Drop Off", "Up");
+				else
+					SmartDashboard::PutString("Drop Off", "Down");
+
 				if (rampSolenoid->Get() == DoubleSolenoid::kForward)
 					SmartDashboard::PutString("Ramp", "Down");
 				else
 					SmartDashboard::PutString("Ramp", "Up");
 
 				/*
-//				if (gearLimitSwitch->Get() == 0) {
-//					// Switch Closed - possessing gear
-//				} else if (gearLimitSwitch->Get() == 1) {
-//					// Switch Open - not possessing gear
-//				} else {
-//					DriverStation::ReportError("Error: Limit switch returning something not 0 or 1");
-//				}
+				if (gearLimitSwitch->Get() == 0) {
+					// Switch Closed - possessing gear
+				} else if (gearLimitSwitch->Get() == 1) {
+					// Switch Open - not possessing gear
+				} else {
+					DriverStation::ReportError("Error: Limit switch returning something not 0 or 1");
+				}
 
 				 */
 
@@ -381,27 +637,36 @@ public:
 				//					DriverStation::ReportError("TCP Received " + tcpReceive + " from " + visionHelper->hostIP);
 				//				}
 
-
-
-				//				if (Timer::GetFPGATimestamp() > timeDrop + 0.5 && debounceTime == -1) {
+				//				if (Timer::GetFPGATimestamp() > debounceTime + 0.5 && Timer::GetFPGATimestamp() > timeDrop + 0.5) {
 				//					rampSolenoid->Set(DoubleSolenoid::kForward);
 				//				}
+				//				if (joystickMain->GetRawButton(4) || joystickSecond->GetRawButton(4)) {
+				//					if (rampSolenoid->Get() == DoubleSolenoid::kForward) {
+				//						debounceTime = Timer::GetFPGATimestamp();
+				//						rampSolenoid->Set(DoubleSolenoid::kReverse);
+				//					}
+				//				}
 
-				if (Timer::GetFPGATimestamp() > debounceTime + 0.5 && Timer::GetFPGATimestamp() > timeDrop + 0.5) {
+				if (Timer::GetFPGATimestamp() > timeDrop + 0.6) {
 					rampSolenoid->Set(DoubleSolenoid::kForward);
 				}
 				if (joystickMain->GetRawButton(1) || joystickSecond->GetRawButton(1)) {
+					DriverStation::ReportError("Pulling down");
 					timeDrop = Timer::GetFPGATimestamp();
 					if (rampSolenoid->Get() == DoubleSolenoid::kForward) {
 						rampSolenoid->Set(DoubleSolenoid::kReverse);
 					}
 				}
-				if (joystickMain->GetRawButton(4) || joystickSecond->GetRawButton(4)) {
-					if (rampSolenoid->Get() == DoubleSolenoid::kForward) {
-						debounceTime = Timer::GetFPGATimestamp();
-						rampSolenoid->Set(DoubleSolenoid::kReverse);
-					}
-				}
+
+				//				if (joystickMain->GetRawButton(1) || joystickSecond->GetRawButton(1)) {
+				//					if (rampSolenoid->Get() != DoubleSolenoid::kForward)
+				//						rampSolenoid->Set(DoubleSolenoid::kForward);
+				//				} else if (joystickMain->GetRawButton(4) || joystickSecond->GetRawButton(4)) {
+				//					if (rampSolenoid->Get() != DoubleSolenoid::kReverse)
+				//						rampSolenoid->Set(DoubleSolenoid::kReverse);
+				//				}
+
+
 
 				if (joystickMain->GetRawButton(2) || joystickSecond->GetRawButton(2)) {
 					if (dropOffSolenoid->Get() != DoubleSolenoid::kForward)
@@ -426,76 +691,111 @@ public:
 					climbingMotor->Set(0);
 				}
 
+				lightTalon->Set(abs(SmartDashboard::GetNumber("LightBright", 0) / 12.0));
 
-				if (joystickMain->GetRawButton(1)) {
+				SmartDashboard::PutNumber("LastReceived", lastReceived);
+				if (visionHelper->checkPendingPacket(&lastReceived) == true) {
+					lastReceivedTime = Timer::GetFPGATimestamp();
+					DriverStation::ReportError("Received " + std::to_string(lastReceived));
+				} else {
+					DriverStation::ReportError("Received nothing");
+				}
 
+				if (joystickMain->GetRawButton(4)) {
+					// This is for running a potential auto routine but in teleop so you can
+					// drive back/reset things easily
+					/*
 					sfDrive->setArcadeInit(false);
 					if (autoState == STATE1) {
 						DriverStation::ReportError("State 1");
-						if (sfDrive->turnToAngle(SmartDashboard::GetNumber("LastReceived", 0)) == true) {
+						if (Timer::GetFPGATimestamp() - lastReceivedTime < 2) {
+							autoState = STATE2;
+							lastAngle = lastReceived;
+						} else {
+							autoState = STOP;
+						}
+					} else if (autoState == STATE2) {
+						DriverStation::ReportError("Turning " + std::to_string(lastAngle));
+						if (sfDrive->turnToAngle(lastAngle) == true) {
+							autoState = STOP;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto turning complete");
+					}
+					 */
+
+					/*
+						if (autoState == STATE1) {
+						DriverStation::ReportError("State 1");
+						SmartDashboard::PutNumber("State", 1);
+						if (sfDrive->driveDistance(116) == true) {
 							autoState = STATE2;
 							sfDrive->setPIDInit(false);
 							initialTime = Timer::GetFPGATimestamp();
 						}
-					} else if (autoState == STATE2) {
-						DriverStation::ReportError("State 2");
 
 					}
+					else if (autoState == STATE2) {
+						DriverStation::ReportError("State 2");
+						SmartDashboard::PutNumber("State", 2);
+						if (sfDrive->turnToAngle(60) == true) {
+							autoState = STATE4;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					}
+//					else if (autoState == STATE3) {
+//						DriverStation::ReportError("State 3");
+//						if (sfDrive->driveDistance(18) == true) {
+//							autoState = STATE4;
+//							sfDrive->setPIDInit(false);
+//							initialTime = Timer::GetFPGATimestamp();
+//						}
+//						if (Timer::GetFPGATimestamp() > initialTime + 1.5) {
+//							autoState = STATE4;
+//							sfDrive->setPIDInit(false);
+//							initialTime = Timer::GetFPGATimestamp();
+//						}
+					else if (autoState == STATE4) {
+						DriverStation::ReportError("State 4");
+						if (Timer::GetFPGATimestamp() > initialTime + 1) {
+							autoState = STATE5;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+						lastAngle = lastReceived;
+					} else if (autoState == STATE5) {
+						DriverStation::ReportError("State 5");
+						if (sfDrive->turnToAngle(lastAngle) == true) {
+							autoState = STATE6;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STATE6) {
+						DriverStation::ReportError("State 6");
+						if (sfDrive->driveDistance(18) == true) {
+							autoState = STATE7;
+							sfDrive->setPIDInit(false);
+							initialTime = Timer::GetFPGATimestamp();
+						}
+					} else if (autoState == STOP) {
+						DriverStation::ReportError("Auto Complete");
+					}
+					 */
 
-					//					if (autoState == STATE1) {
-					//						DriverStation::ReportError("State 1");
-					//						if (sfDrive->driveDistance(90.6)) {
-					//							autoState = STATE2;
-					//							sfDrive->setPIDInit(false);
-					//							initialTime = Timer::GetFPGATimestamp();
-					//							SmartDashboard::PutNumber("TicksDriven", backMotorL->GetEncPosition());
-					//						}
-					//					} else if (autoState == STATE2) {
-					//						DriverStation::ReportError("State 2");
-					//						if (sfDrive->turnToAngle(SmartDashboard::GetNumber("LastReceived", 0)) == true) {
-					//							autoState = STATE3;
-					//							sfDrive->setPIDInit(false);
-					//							initialTime = Timer::GetFPGATimestamp();
-					//						}
-					//					}
-
-					//					else if (autoState == STATE2) {
-					//						DriverStation::ReportError("State 2");
-					//
-					//						if (Timer::GetFPGATimestamp() < initialTime + 1) {
-					//						} else if (sfDrive->driveDistance(SmartDashboard::GetNumber("Current Setpoint Left", 0)) == true) {
-					//							autoState = STATE3;
-					//							sfDrive->setPIDInit(false);
-					//							initialTime = Timer::GetFPGATimestamp();
-					//						}
-					//						//						if (Timer::GetFPGATimestamp() < initialTime + 1) {
-					//						//						} else if (sfDrive->turnToAngle(SmartDashboard::GetNumber("AngleToTurn2", 0)) == true) {
-					//						//							autoState = STATE3;
-					//						//							sfDrive->setPIDInit(false);
-					//						//							initialTime = Timer::GetFPGATimestamp();
-					//					}
 				} else {
 					DriverStation::ReportError("Joystick Drive");
-					//					backMotorL->Set(SmartDashboard::GetNumber("SetRPM", 0));
-					//					SmartDashboard::PutNumber("GetRPM", backMotorL->GetSpeed());
-					//					SmartDashboard::PutNumber("Current", backMotorL->GetOutputVoltage());
 
-					sfDrive->joystickDrive(-joystickMain->GetRawAxis(1), (-joystickMain->GetRawAxis(1) * driveTurnConstant) -joystickMain->GetRawAxis(4));
+					sfDrive->joystickDrive(joystickMain->GetRawAxis(1), joystickMain->GetRawAxis(4));
 					//				versaMotorL->Set(backLID);
 					//				versaMotorR->Set(backRID);
 
+					sfDrive->mediumDrive = false;
 					sfDrive->setPIDInit(false);
+					SmartDashboard::PutNumber("State", 1);
 					autoState = STATE1;
-
-					if (visionHelper->udpSocket->hasPendingPacket()) {
-						visionHelper->receivePendingUDP();
-						string udpReceive = visionHelper->udpReceiveString;
-						//						lastAngle = std::stoi(udpReceive);
-						DriverStation::ReportError("Received " + udpReceive + " from " + visionHelper->hostIP);
-					} else {
-						//						lastAngle = SmartDashboard::GetNumber("LastReceived", 0);
-						DriverStation::ReportError("Receiving nothing");
-					}
 				}
 			} else {
 				teleopInit = false;
